@@ -35,6 +35,8 @@ async function doPost(e) {
   if (prop.getProperty("verification_token") != json.token) {
     throw new Error("invalid token.");
   }
+
+  console.log(JSON.stringify(json));
   
   // Events APIを使用する初回、URL Verificationのための記述
   if (json.type == "url_verification") {
