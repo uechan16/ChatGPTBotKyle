@@ -35,12 +35,7 @@ app.event("app_mention", async ({ event,client, say}) => {
   console.log(`${event.user} mentioned me!`);
   
   await sleep(8000) 
-  
-  const channelId = event.channel;
-  const replies = await client.conversations.replies({
-      channel: channelId,
-      ts: event.thread_ts || event.ts,
-    });
+
   const prompt = addPrompt("user",event.blocks[0].elements[0].elements[1].text);
 
   addPromptMemnory("user",event.blocks[0].elements[0].elements[1].text);
@@ -119,7 +114,6 @@ const addPromptMemnory = function addPromptMemnory(role,promptStr) {
 
 (async () => {
   // アプリを起動します
-  require('dotenv').config();
   //console.log(process.env.SLACK_BOT_TOKEN);
   //await app.start();
   await app.start(process.env.PORT || 3000);
