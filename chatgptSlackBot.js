@@ -2,7 +2,6 @@ const { WebClient } = require('@slack/web-api');
 const { createEventAdapter } = require('@slack/events-api');
 const { LogLevel } = require("@slack/logger");
 const { GPT3Tokenizer } = require("gpt3-tokenizer");
-const slackEvents = createEventAdapter(process.env.SLACK_SIGNING_SECRET);
 //const logLevel = process.env.SLACK_LOG_LEVEL || LogLevel.INFO;
 const CHAT_GPT_SYSTEM_PROMPT = `あなたは忠実なアシスタントです。
 あなたの見た目は青色のイルカです。
@@ -15,7 +14,8 @@ const CHAT_GPT_SYSTEM_PROMPT = `あなたは忠実なアシスタントです。
 var promptMemory = [];
 const token = process.env.SLACK_BOT_TOKEN;
 
-//require('dotenv').config()
+require('dotenv').config()
+const slackEvents = createEventAdapter(process.env.SLACK_SIGNING_SECRET);
 const port = process.env.PORT || 3000;
 
 const { Configuration, OpenAIApi } = require("openai");
@@ -33,19 +33,13 @@ async function doPost(e) {
   // Events APIからのPOSTを取得
   // 参考→https://api.slack.com/events-api
   const json = JSON.parse(e.postData.getDataAsString());
-  
-  // Events APIからのPOSTであることを確認
-  if (prop.getProperty("verification_token") != json.token) {
-    throw new Error("invalid token.");
+
+  if('challenge' in json){
+    return ContentService.createTextOutput(json.challenge);
   }
 
   console.log(JSON.stringify(json));
-  
-  // Events APIを使用する初回、URL Verificationのための記述
-  if (json.type == "url_verification") {
-    console.log("challege!!!");
-    return ContentService.createTextOutput(json.challenge);
-  }
+
 
   const web = new WebClient(token);
 
@@ -136,10 +130,11 @@ const addPromptMemnory = function addPromptMemnory(role,promptStr) {
 
 (async () => {
   // アプリを起動します
-  //require('dotenv').config();
+  require('dotenv').config();
+  console.log('⚡️ Bolt app is running!');
   const server = await slackEvents.start(port);
 
-  console.log('⚡️ Bolt app is running!');
+  
 })();
 const sleep = (time) => {
   return new Promise((resolve, reject) => {
