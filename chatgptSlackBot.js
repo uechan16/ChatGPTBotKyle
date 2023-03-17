@@ -40,6 +40,7 @@ async function doPost(e) {
   
   // Events APIを使用する初回、URL Verificationのための記述
   if (json.type == "url_verification") {
+    console.log("challege!!!");
     return ContentService.createTextOutput(json.challenge);
   }
 
@@ -132,7 +133,7 @@ const addPromptMemnory = function addPromptMemnory(role,promptStr) {
 
 (async () => {
   // アプリを起動します
-  require('dotenv').config();
+  //require('dotenv').config();
   
 
   console.log('⚡️ Bolt app is running!');
