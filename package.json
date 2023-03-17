@@ -1,8 +1,4 @@
 {
-  "name": "starter-slack-boltjs",
-  "version": "1.0.0",
-  "description": "",
-  "main": "chatgptSlackBot.js",
   "dependencies": {
     "@slack/bolt": "^3.12.2",
     "@slack/events-api": "^3.0.1",
