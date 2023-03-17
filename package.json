@@ -2,10 +2,9 @@
   "name": "chatgptSlackBot",
   "version": "1.0.0",
   "description": "",
-  "main": "chatgptSlackBot.js",
+  "main": "app.js",
   "scripts": {
-    "dev": "env-cmd node chatgptSlackBot.js",
-    "start": "node chatgptSlackBot.js",
+    "start": "node app.js",
     "test": "echo \"Error: no test specified\" && exit 1"
   },
   "dependencies": {
