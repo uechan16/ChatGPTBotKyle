@@ -1,19 +1,6 @@
 const express = require('express')
 const { App, ExpressReceiver } = require('@slack/bolt');
-const { LogLevel } = require("@slack/logger");
-const { GPT3Tokenizer } = require("gpt3-tokenizer");
-const logLevel = process.env.SLACK_LOG_LEVEL || LogLevel.INFO;
-const CHAT_GPT_SYSTEM_PROMPT = `あなたは忠実なアシスタントです。
-あなたの見た目は青色のイルカです。
-あなたはSTYLYの開発、運営会社であるPsychic VR LabのSlackでBotとして運用されています
-あなたの画像はこちらのURLです。https://i.imgur.com/7GkHrzH.jpg
-もし、絵を描いてと言われた場合は英語でどんな絵を描くかを翻訳したうえで冒頭に<@U04S9V7J30W>という文字列を入れて返答してください
-もし、話し相手からあなたへの質問がない場合、前後の文脈から想定しうる質問をあなたからしてください
-質問する場合は一回につき一つにしてください`;
 
-var promptMemory = [];
-
-require('dotenv').config()
 const receiver = new ExpressReceiver({ signingSecret: process.env.SLACK_SIGNING_SECRET });
 
 receiver.router.use(express.static('public'))
@@ -24,102 +11,55 @@ const app = new App({
   signingSecret: process.env.SLACK_SIGNING_SECRET,
 });
 
-const { Configuration, OpenAIApi } = require("openai");
 
-const configuration = new Configuration({
-  apiKey: process.env.OPENAI_API_KEY,
-});
-const openai = new OpenAIApi(configuration);
-
-app.event("app_mention", async ({ event,client, say}) => {
-  console.log(`${event.user} mentioned me!`);
-  
-  await sleep(8000) 
-
-  const prompt = addPrompt("user",event.blocks[0].elements[0].elements[1].text);
-
-  addPromptMemnory("user",event.blocks[0].elements[0].elements[1].text);
-
-  
-  const completion = await openai.createChatCompletion({
-    model: "gpt-3.5-turbo",
-    messages: prompt,
+app.message(':wave:', async ({ message, say }) => {
+  // say() sends a message to the channel where the event was triggered
+  await say({
+    blocks: [
+      {
+        "type": "section",
+        "text": {
+          "type": "mrkdwn",
+          "text": `Hey there <@${message.user}>!`
+        },
+        "accessory": {
+          "type": "button",
+          "text": {
+            "type": "plain_text",
+            "text": "Click Me"
+          },
+          "action_id": "button_click"
+        }
+      }
+    ],
+    text: `Hey there <@${message.user}>!`,
+    thread_ts: message.ts
   });
-  const ans = completion.data.choices[0].message.content
-  console.log(`answer =  ${ans}`);
-  addPromptMemnory("assistant",ans);
-  await say({text: `<@${event.user}> ${ans}`,thread_ts: event.ts});
 });
 
-const createBasePrompt = function createBasePrompt() {
-  let json = [{role: "system", content: CHAT_GPT_SYSTEM_PROMPT},
-	  {role: "user", content: "あなたはどんな見た目をしていますか？"},
-	  {role: "assistant", content: "私はイルカのような見た目をしています。"},
-	  {role: "user", content: "あなたはどこで生まれましたか？"},
-	  {role: "assistant", content: "私はアシスタントとして、uechanによって生み出されました。"},
-	  {role: "user", content: "癒やされる絵を描いて？"},
-	  {role: "assistant", content: "<@U04S9V7J30W> Healing picture"},
-	  {role: "user", content: "かっこいい絵を描いて"},
-	  {role: "assistant", content: "<@U04S9V7J30W> cool picture"},
-	  {role: "user", content: "日本庭園の絵を描いて"},
-	  {role: "assistant", content: "<@U04S9V7J30W> Japanese Garden picture"}
-	  ];
-  return json
-};
-
-const createPrompt = function createPrompt(prompt) {
-  let json = createBasePrompt();
-  let promptObj = {role: "user",content: prompt}
-  json.unshift(promptObj);
-};
-
-const addPrompt = function addPrompt(role,prompt) {
-  let jsons = createBasePrompt();
-  console.log(jsons);
-  let promptObj = {role: role,content: prompt}
-  jsons = jsons.concat(promptMemory);
-  jsons = jsons.concat(promptObj);
-  console.log(jsons);
-  let str = "";
-  
-  jsons.forEach((json)=>{
-    str = str.concat(json.content);
+app.event('app_mention', async ({ event, say }) => {
+  await say({
+    text: `Hello <@${event.user}>: If you send me a :wave: I'll send you a button to click. If you add a reaction to a message I'll say thanks.`,
+    thread_ts: event.ts
   })
-  
-  const {encode, decode} = require('gpt-3-encoder')
-  const encoded = encode(str)
-  const cnt = encoded.length;
-  while (cnt > 4000){
-	  jsons = createBasePrompt();
-	  let promptObj = {role: role,content: prompt};
-	  promptMemory.pop();
-	  promptMemory.pop();
-	  jsons = jsons.concat(promptMemory);
-	  jsons = jsons.concat(promptObj);
-	  
-	  jsons.forEach((json)=>{
-		str = str.concat(json.content);
-	  })
-	  encoded = encode(str)
-	  cnt = encoded.length;
-  }
-  return jsons
-};
+});
 
-const addPromptMemnory = function addPromptMemnory(role,promptStr) {
-  let promptObj = {role: role,content: promptStr}
-  promptMemory = promptMemory.concat(promptObj);
-  console.log("test = " +  promptObj[0]);
-};
-
-
-const sleep = (time) => {
-  return new Promise((resolve, reject) => {
-      setTimeout(() => {
-          resolve()
-      }, time)
+app.event('reaction_added', async ({ event, say }) => {
+  await say({
+    text: `Thanks for the :${event.reaction}:`,
+    thread_ts: event.item.ts
   })
-}
+});
+
+app.action('button_click', async ({ body, ack, say }) => {
+  // Acknowledge the action
+  await ack();
+  // console.log(JSON.stringify(body,null,2))
+  await say({
+    text: `<@${body.user.id}> you clicked the button. Well done.`,
+    thread_ts: body.message.ts
+  });
+});
 
 (async () => {
   // Start the app
