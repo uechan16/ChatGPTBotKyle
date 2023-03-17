@@ -1,7 +1,9 @@
 const { WebClient } = require('@slack/web-api');
+const { createEventAdapter } = require('@slack/events-api');
 const { LogLevel } = require("@slack/logger");
 const { GPT3Tokenizer } = require("gpt3-tokenizer");
-const logLevel = process.env.SLACK_LOG_LEVEL || LogLevel.INFO;
+const slackEvents = createEventAdapter(process.env.SLACK_SIGNING_SECRET);
+//const logLevel = process.env.SLACK_LOG_LEVEL || LogLevel.INFO;
 const CHAT_GPT_SYSTEM_PROMPT = `あなたは忠実なアシスタントです。
 あなたの見た目は青色のイルカです。
 あなたはSTYLYの開発、運営会社であるPsychic VR LabのSlackでBotとして運用されています
@@ -13,7 +15,8 @@ const CHAT_GPT_SYSTEM_PROMPT = `あなたは忠実なアシスタントです。
 var promptMemory = [];
 const token = process.env.SLACK_BOT_TOKEN;
 
-require('dotenv').config()
+//require('dotenv').config()
+const port = process.env.PORT || 3000;
 
 const { Configuration, OpenAIApi } = require("openai");
 
@@ -134,7 +137,7 @@ const addPromptMemnory = function addPromptMemnory(role,promptStr) {
 (async () => {
   // アプリを起動します
   //require('dotenv').config();
-  
+  const server = await slackEvents.start(port);
 
   console.log('⚡️ Bolt app is running!');
 })();
