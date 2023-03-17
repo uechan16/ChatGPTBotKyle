@@ -1,3 +1,4 @@
+const express = require('express')
 const { App, ExpressReceiver } = require('@slack/bolt');
 const { LogLevel } = require("@slack/logger");
 const { GPT3Tokenizer } = require("gpt3-tokenizer");
