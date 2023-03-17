@@ -12,17 +12,17 @@ const CHAT_GPT_SYSTEM_PROMPT = `あなたは忠実なアシスタントです。
 
 var promptMemory = [];
 
-//require('dotenv').config()
-const app = new App({
+require('dotenv').config()
+const receiver = new ExpressReceiver({ signingSecret: process.env.SLACK_SIGNING_SECRET });
 
+receiver.router.use(express.static('public'))
+
+const app = new App({
+  receiver,
   token: process.env.SLACK_BOT_TOKEN,
   signingSecret: process.env.SLACK_SIGNING_SECRET,
-  socketMode: true,
-  appToken: process.env.SLACK_APP_TOKEN,
-  // ソケットモードではポートをリッスンしませんが、アプリを OAuth フローに対応させる場合、
-  // 何らかのポートをリッスンする必要があります
-  port: process.env.PORT || 3000
 });
+
 const { Configuration, OpenAIApi } = require("openai");
 
 const configuration = new Configuration({
@@ -119,9 +119,9 @@ const addPromptMemnory = function addPromptMemnory(role,promptStr) {
 (async () => {
   // アプリを起動します
   require('dotenv').config();
-  console.log(process.env.SLACK_BOT_TOKEN);
-  await app.start();
-
+  //console.log(process.env.SLACK_BOT_TOKEN);
+  //await app.start();
+  await app.start(process.env.PORT || 3000);
   console.log('⚡️ Bolt app is running!');
 })();
 const sleep = (time) => {
