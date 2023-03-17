@@ -1,8 +1,7 @@
-const { WebClient } = require('@slack/web-api');
-const { createEventAdapter } = require('@slack/events-api');
+const { App } = require('@slack/bolt');
 const { LogLevel } = require("@slack/logger");
 const { GPT3Tokenizer } = require("gpt3-tokenizer");
-//const logLevel = process.env.SLACK_LOG_LEVEL || LogLevel.INFO;
+const logLevel = process.env.SLACK_LOG_LEVEL || LogLevel.INFO;
 const CHAT_GPT_SYSTEM_PROMPT = `あなたは忠実なアシスタントです。
 あなたの見た目は青色のイルカです。
 あなたはSTYLYの開発、運営会社であるPsychic VR LabのSlackでBotとして運用されています
@@ -12,12 +11,18 @@ const CHAT_GPT_SYSTEM_PROMPT = `あなたは忠実なアシスタントです。
 質問する場合は一回につき一つにしてください`;
 
 var promptMemory = [];
-const token = process.env.SLACK_BOT_TOKEN;
 
-require('dotenv').config()
-const slackEvents = createEventAdapter(process.env.SLACK_SIGNING_SECRET);
-const port = process.env.PORT || 3000;
+//require('dotenv').config()
+const app = new App({
 
+  token: process.env.SLACK_BOT_TOKEN,
+  signingSecret: process.env.SLACK_SIGNING_SECRET,
+  socketMode: true,
+  appToken: process.env.SLACK_APP_TOKEN,
+  // ソケットモードではポートをリッスンしませんが、アプリを OAuth フローに対応させる場合、
+  // 何らかのポートをリッスンする必要があります
+  port: process.env.PORT || 3000
+});
 const { Configuration, OpenAIApi } = require("openai");
 
 const configuration = new Configuration({
@@ -25,30 +30,21 @@ const configuration = new Configuration({
 });
 const openai = new OpenAIApi(configuration);
 
-async function doPost(e) {
-  // プロジェクトのプロパティ>スクリプトのプロパティから情報取得
-  // AppのVerification Tokenが入っている前提
-  const prop = PropertiesService.getScriptProperties();
+app.event("app_mention", async ({ event,client, say}) => {
+  console.log(`${event.user} mentioned me!`);
   
-  // Events APIからのPOSTを取得
-  // 参考→https://api.slack.com/events-api
-  const json = JSON.parse(e.postData.getDataAsString());
+  await sleep(8000) 
+  
+  const channelId = event.channel;
+  const replies = await client.conversations.replies({
+      channel: channelId,
+      ts: event.thread_ts || event.ts,
+    });
+  const prompt = addPrompt("user",event.blocks[0].elements[0].elements[1].text);
 
-  if('challenge' in json){
-    return ContentService.createTextOutput(json.challenge);
-  }
+  addPromptMemnory("user",event.blocks[0].elements[0].elements[1].text);
 
-  console.log(JSON.stringify(json));
-
-
-  const web = new WebClient(token);
-
-  const channelId = json.channel;
- 
-  const prompt = addPrompt("user",json.blocks[0].elements[0].elements[1].text);
-
-  addPromptMemnory("user",json.blocks[0].elements[0].elements[1].text);
-
+  
   const completion = await openai.createChatCompletion({
     model: "gpt-3.5-turbo",
     messages: prompt,
@@ -56,16 +52,8 @@ async function doPost(e) {
   const ans = completion.data.choices[0].message.content
   console.log(`answer =  ${ans}`);
   addPromptMemnory("assistant",ans);
-
-  const result = await web.chat.postMessage({
-    text: `<@${json.user}> ${ans}`,
-    channel: channelId,
-    thread_ts: json.ts,
-  });
-
-}
-
-
+  await say({text: `<@${event.user}> ${ans}`,thread_ts: event.ts});
+});
 
 const createBasePrompt = function createBasePrompt() {
   let json = [{role: "system", content: CHAT_GPT_SYSTEM_PROMPT},
@@ -131,10 +119,10 @@ const addPromptMemnory = function addPromptMemnory(role,promptStr) {
 (async () => {
   // アプリを起動します
   require('dotenv').config();
-  console.log('⚡️ Bolt app is running!');
-  const server = await slackEvents.start(port);
+  console.log(process.env.SLACK_BOT_TOKEN);
+  await app.start();
 
-  
+  console.log('⚡️ Bolt app is running!');
 })();
 const sleep = (time) => {
   return new Promise((resolve, reject) => {
