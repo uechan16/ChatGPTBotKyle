@@ -1,4 +1,4 @@
-const { App } = require('@slack/bolt');
+const { App, ExpressReceiver } = require('@slack/bolt');
 const { LogLevel } = require("@slack/logger");
 const { GPT3Tokenizer } = require("gpt3-tokenizer");
 const logLevel = process.env.SLACK_LOG_LEVEL || LogLevel.INFO;
