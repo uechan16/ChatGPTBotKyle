@@ -1,5 +1,5 @@
 {
-  "name": "starter-slack-boltjs",
+  "name": "chatgptSlackBot",
   "version": "1.0.0",
   "description": "",
   "main": "chatgptSlackBot.js",
