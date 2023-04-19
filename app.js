@@ -5,13 +5,17 @@ const { GPT3Tokenizer } = require("gpt3-tokenizer");
 const logLevel = process.env.SLACK_LOG_LEVEL || LogLevel.INFO;
 const http  = require('http');
 const https = require('https');
+const jsdom = require('jsdom');
+const { JSDOM } = jsdom;
+
 
 
 const CHAT_GPT_SYSTEM_PROMPT = `あなたは忠実なアシスタントです。
+あなたの名前はカイルと言います。
 あなたの見た目は青色のイルカです。
 あなたはSTYLYの開発、運営会社であるPsychic VR LabのSlackでBotとして運用されています
 あなたの画像はこちらのURLです。https://i.imgur.com/7GkHrzH.jpg
-もし、絵を描いてと言われた場合は英語でどんな絵を描くかを翻訳したうえで冒頭に<@U04S9V7J30W>という文字列を入れて返答してください
+もし、○○の絵を描いてと言われた場合は冒頭に<@U04S9V7J30W>という文字列を入れてオウム返ししてください。
 もし、話し相手からあなたへの質問がない場合、前後の文脈から想定しうる質問をあなたからしてください
 質問する場合は一回につき一つにしてください`;
 
@@ -37,28 +41,57 @@ const configuration = new Configuration({
 });
 const openai = new OpenAIApi(configuration);
 
+
 app.event("app_mention", async ({ event,client, say}) => {
   console.log(`${event.user} mentioned me!`);
 
-
   var userInfo = await app.client.users.info({user: event.user});
   console.log(userInfo.user.name);
+  //console.log(JSON.stringify(event.text));
   
   await sleep(8000) 
 
-  const prompt = await addPrompt("user",userInfo.user.name + ":>" + event.blocks[0].elements[0].elements[1].text);
+  //const prompt = await addPrompt("user",userInfo.user.name + ":>" + event.text.replace("<@U04U3T89ALD>",""));
+  const result = /要約して/.test(event.text);
+  if (result){
+    const url = /https?:\/\/[-_.!~*\'()a-zA-Z0-9;\/?:\@&=+\$,%#\u3000-\u30FE\u4E00-\u9FA0\uFF01-\uFFE3]+/g.exec(event.text);
+    console.log("Match!!!");
+    var prompt = [{
+      role: "",
+      content: ""
+    }];
+    let baseprompt = {role: "system",content: CHAT_GPT_SYSTEM_PROMPT};
+    let userprompt = {role: "user",content: "以下の文章を200文字で要約しなさい\r\n" + await getWebData(url[0])};
+    prompt = prompt.concat(baseprompt);
+    prompt = prompt.concat(userprompt);
+    prompt.shift();
 
-  console.log(`prompt is --------------\r\n${JSON.stringify(prompt)}`);
-  const completion = await openai.createChatCompletion({
-    model: "gpt-3.5-turbo",
-    messages: prompt,
-  });
-  const ans = completion.data.choices[0].message.content
-  console.log(`question =  ${event.blocks[0].elements[0].elements[1].text}`);
-  console.log(`answer =  ${ans}`);
-  addPromptMemnory("user",userInfo.user.name + ":>" + event.blocks[0].elements[0].elements[1].text);
-  addPromptMemnory("assistant",ans);
-  await say({text: `<@${event.user}> ${ans}`,thread_ts: event.ts});
+    console.log(`prompt is --------------\r\n${JSON.stringify(prompt)}`);
+    const completion = await openai.createChatCompletion({
+      model: "gpt-3.5-turbo",
+      messages: prompt,
+    });
+    const ans = completion.data.choices[0].message.content
+    console.log(`question =  ${event.blocks[0].elements[0].elements[1].text}`);
+    console.log(`answer =  ${ans}`);
+    await say({text: `<@${event.user}> ${ans}`,thread_ts: event.ts});
+
+  }else{
+    const prompt = await addPrompt("user",event.text.replace("<@U04RV37KP8U>",""));
+
+    console.log(`prompt is --------------\r\n${JSON.stringify(prompt)}`);
+    const completion = await openai.createChatCompletion({
+      model: "gpt-3.5-turbo",
+      messages: prompt,
+    });
+    const ans = completion.data.choices[0].message.content
+    console.log(`question =  ${event.blocks[0].elements[0].elements[1].text}`);
+    console.log(`answer =  ${ans}`);
+    addPromptMemnory("user",userInfo.user.name + ":>" + event.blocks[0].elements[0].elements[1].text);
+    addPromptMemnory("assistant",ans);
+    await say({text: `<@${event.user}> ${ans}`,thread_ts: event.ts});
+  }
+  
 });
 
 const createBasePrompt = async function createBasePrompt() {
@@ -90,18 +123,49 @@ const createBasePrompt = async function createBasePrompt() {
     明日の予想最低気温:${weatherTomoTempMin}`},
 	  {role: "user", content: "あなたはどんな見た目をしていますか？"},
 	  {role: "assistant", content: "私はイルカのような見た目をしています。"},
-	  {role: "user", content: "あなたはどこで生まれましたか？"},
-	  {role: "assistant", content: "私はアシスタントとして、uechanによって生み出されました。"},
-	  {role: "user", content: "癒やされる絵を描いて？"},
-	  {role: "assistant", content: "<@U04S9V7J30W> Healing picture"},
-	  {role: "user", content: "かっこいい絵を描いて"},
-	  {role: "assistant", content: "<@U04S9V7J30W> cool picture"},
+	  {role: "user", content: "あなたの名前は？"},
+	  {role: "assistant", content: "カイルといいます。"},
+	  {role: "user", content: "イルカの絵を描いて？"},
+	  {role: "assistant", content: "<@U04S9V7J30W> イルカ"},
+	  {role: "user", content: "かっこいい車の絵を描いて"},
+	  {role: "assistant", content: "<@U04S9V7J30W> かっこいい車"},
 	  {role: "user", content: "日本庭園の絵を描いて"},
-	  {role: "assistant", content: "<@U04S9V7J30W> Japanese Garden picture"}
+	  {role: "assistant", content: "<@U04S9V7J30W> 日本庭園"},
+    {role: "user", content: "ありがとうございます"},
+	  {role: "assistant", content: "お役に立てて嬉しいです。何か私がお力になれることがあれば、遠慮なくおっしゃってください。"}
 	  ];
   return json
 };
+const getWebData = async function getWebData(url){
+  console.log("Start !!"); 
+  const getResult = await request(url); 
+  let result = "";
 
+  try{
+    const virtualConsole = new jsdom.VirtualConsole();
+    virtualConsole.on("error", () => {
+      // No-op to skip console errors.
+    });
+    const dom = new JSDOM(getResult, { virtualConsole });
+    //const dom = new JSDOM(getResult);
+    // get element
+    await new Promise(resolve => setTimeout(resolve, 1000))
+    const document = dom.window.document;
+    const title = document.title;
+    const dobyElements = document.getElementsByTagName('body');
+    const tagElements = dobyElements[0].querySelectorAll('h1,h2,h3,h4,h5,p');
+    const targetElements = tagElements;
+    tagElements.forEach(function (element){
+      result = result.concat('', element.textContent);
+    })
+    result = title.concat('\r\n',result);
+      
+  }catch (e){
+    console.error(e)
+  }
+  // console.dir(result, { depth: null });
+  return result
+}
 
 const addPrompt = async function addPrompt(role,prompt) {
   var jsons = {
