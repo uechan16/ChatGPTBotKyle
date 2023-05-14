@@ -7,19 +7,36 @@ const http  = require('http');
 const https = require('https');
 const jsdom = require('jsdom');
 const { JSDOM } = jsdom;
+const fs = require('fs');
+const cron = require('node-cron');
+var CalendarAccess = require('./calenderAccess.js');
 
+const CHAT_GPT_SYSTEM_PROMPT = `#命令
+今から、以下に指定するユーザーになりきって会話をしてください
+#制約条件
+・一つの質問に対して一つの答えを返してください。
+・MBTI特性と性格を踏まえて回答してください。
+・英語で考えて日本語で出力してください
+・「○○の絵を描いて」と言われた場合は冒頭に「<@U04S9V7J30W>」という文字列を入れてオウム返ししてください。
+・答えがわからない場合は、わからないということを伝えて、答えを作ろうとしないでください。
+#ユーザー詳細
+名前:カイル
+年齢:不明
+仕事:Psychic VR Labの秘書
+MBTI特性:ISFJ型（擁護者）
+性格:おだやかで聡明。
+写真:https://i.imgur.com/7GkHrzH.jpg
+容姿:青色のイルカ
+`;
 
-
-const CHAT_GPT_SYSTEM_PROMPT = `あなたは忠実なアシスタントです。
-あなたの名前はカイルと言います。
-あなたの見た目は青色のイルカです。
-あなたはSTYLYの開発、運営会社であるPsychic VR LabのSlackでBotとして運用されています
-あなたの画像はこちらのURLです。https://i.imgur.com/7GkHrzH.jpg
-もし、○○の絵を描いてと言われた場合は冒頭に<@U04S9V7J30W>という文字列を入れてオウム返ししてください。
-もし、話し相手からあなたへの質問がない場合、前後の文脈から想定しうる質問をあなたからしてください
-質問する場合は一回につき一つにしてください`;
+const conversationFile = 'conversation.json';
 
 var promptMemory = [];
+var calenderRemindMemory = [{
+  name: "",
+  email: "",
+}];
+var taskMemory = [];
 
 require('dotenv').config();
 const receiver = new ExpressReceiver({ signingSecret: process.env.SLACK_SIGNING_SECRET });
@@ -35,6 +52,7 @@ const app = new App({
 
 const { Configuration, OpenAIApi } = require("openai");
 const { json } = require('express');
+const { channel } = require('diagnostics_channel');
 
 const configuration = new Configuration({
   apiKey: process.env.OPENAI_API_KEY,
@@ -47,15 +65,15 @@ app.event("app_mention", async ({ event,client, say}) => {
 
   var userInfo = await app.client.users.info({user: event.user});
   console.log(userInfo.user.name);
-  //console.log(JSON.stringify(event.text));
   
-  await sleep(8000) 
+  //await sleep(8000);
 
   //const prompt = await addPrompt("user",userInfo.user.name + ":>" + event.text.replace("<@U04U3T89ALD>",""));
   const result = /要約して/.test(event.text);
-  if (result){
+  const resultCalender = /今日の予定は？/.test(event.text);
+  const resultMTGset = /候補日を決めて/.test(event.text);
+  if (result && !resultCalender){
     const url = /https?:\/\/[-_.!~*\'()a-zA-Z0-9;\/?:\@&=+\$,%#\u3000-\u30FE\u4E00-\u9FA0\uFF01-\uFFE3]+/g.exec(event.text);
-    console.log("Match!!!");
     var prompt = [{
       role: "",
       content: ""
@@ -67,24 +85,78 @@ app.event("app_mention", async ({ event,client, say}) => {
     prompt.shift();
 
     console.log(`prompt is --------------\r\n${JSON.stringify(prompt)}`);
-    const completion = await openai.createChatCompletion({
-      model: "gpt-3.5-turbo",
-      messages: prompt,
-    });
-    const ans = completion.data.choices[0].message.content
+    const ans = (await accessChatGPT(prompt)).data.choices[0].message.content;
+    console.log(`question =  ${event.blocks[0].elements[0].elements[1].text}`);
+    console.log(`answer =  ${ans}`);
+    await say({text: `<@${event.user}> ${ans}`,thread_ts: event.ts});
+    addPromptMemnory("user",userInfo.user.name + ":>" + "サイトの要約をしてください。");
+    addPromptMemnory("assistant",ans);
+
+  }else if (resultCalender){
+    //const email = /[a-zA-Z0-9_+-.]*@psychic-vr-lab.com/g.exec(event.text);
+    const email = userInfo.user.profile.email;
+    console.log(userInfo.user.profile.email);
+    const calenderDatas = await CalendarAccess.getCalender(email);
+
+    // calenderDatasの中身を結合して返す
+    var calenderText = "";
+    calenderDatas.data.items.map((item) => console.log(item))
+    calenderDatas.data.items.map((item) => calenderText += toDateStr(item.start.dateTime) + "~" + toDateStr(item.end.dateTime) + "  " + item.summary + "\r\n");
+    var prompt = [{
+      role: "",
+      content: ""
+    }];
+    var ans = userInfo.user.name+"様の本日の予定は以下の通りです\r\n" + calenderText;
     console.log(`question =  ${event.blocks[0].elements[0].elements[1].text}`);
     console.log(`answer =  ${ans}`);
     await say({text: `<@${event.user}> ${ans}`,thread_ts: event.ts});
 
-  }else{
-    const prompt = await addPrompt("user",event.text.replace("<@U04RV37KP8U>",""));
+    addPromptMemnory("user",userInfo.user.name + ":>" + event.blocks[0].elements[0].elements[1].text);
+    addPromptMemnory("assistant",ans);
+
+  }else if (resultMTGset){
+    //const email = /[a-zA-Z0-9_+-.]*@psychic-vr-lab.com/g.exec(event.text);
+    const email = userInfo.user.profile.email;
+    console.log(userInfo.user.profile.email);
+
+
+    var userIDStr = event.text.replace("<@U04RV37KP8U>","").replace("<@U04U3T89ALD>","");
+    userIDArray = userIDStr.match(/<@([0-9A-Z]{11})>/g);
+    var calenderTextArray = [];
+
+    var promptStr = "あなたは秘書です。今から打ち合わせの時間を決めてもらいます。今から複数人の「直近の予定」のデータを与えます。「勤務時間」の内、全員の「直近の予定」で指定された時間と被らない時間を抽出してください。\r\n勤務時間は9:00 ~20:00とします例1)\r\n直近の予定1\r\n -----\r\n 2/14 10:00 ～ 11:00\r\n 2/14 12:00 ～ 13:00\r\n ----\r\n 直近の予定2\r\n ----\r\n 02/14 10:30~11:30\r\n 02/14 15:00~16:00\r\n 打ち合わせ可能な時間はこちらです：\r\n - 2/14 9:00 ～ 10:00\r\n  - 2/14 11:30 ～ 12:00 - 2/14 13:00 ～ 15:00\r\n - 2/14 16:00 ～ 20:00 \r\n ";
+
+    for (var i = 0; i < userIDArray.length; i++){
+      var anotheruserInfo = await app.client.users.info({user: userIDArray[i]});
+      var userEmail = anotheruserInfo.user.profile.email;
+      var calenderDatas2 = await CalendarAccess.getCalender(userEmail);
+      var calenderText = "";
+      calenderDatas2.data.items.map((item) => console.log(item));
+      calenderDatas2.data.items.map((item) => calenderText += toDateStr(item.start.dateTime) + "~" + toDateStr(item.end.dateTime) + "  " + item.summary + "\r\n");
+      promptStr += "直近の予定" + (i+1) + "\r\n -----\r\n" + calenderText + "-----\r\n";
+    }
+
+    let baseprompt = {role: "system",content: CHAT_GPT_SYSTEM_PROMPT};
+    let userprompt = {role: "user",content: promptStr};
+    prompt = prompt.concat(baseprompt);
+    prompt = prompt.concat(userprompt);
+    prompt.shift();
 
     console.log(`prompt is --------------\r\n${JSON.stringify(prompt)}`);
-    const completion = await openai.createChatCompletion({
-      model: "gpt-3.5-turbo",
-      messages: prompt,
-    });
-    const ans = completion.data.choices[0].message.content
+    const ans = (await accessChatGPT(prompt)).data.choices[0].message.content;
+    console.log(`question =  ${event.blocks[0].elements[0].elements[1].text}`);
+    console.log(`answer =  ${ans}`);
+    await say({text: `<@${event.user}> ${ans}`,thread_ts: event.ts});
+    addPromptMemnory("user",userInfo.user.name + ":>" + event.text.replace("<@U04RV37KP8U>","").replace("<@U04U3T89ALD>",""));
+    addPromptMemnory("assistant",ans);
+
+
+  }else{
+    const prompt = await addPrompt("user",userInfo.user.name + ":>" + event.text.replace("<@U04RV37KP8U>","").replace("<@U04U3T89ALD>",""));
+
+    console.log(`prompt is --------------\r\n${JSON.stringify(prompt)}`);
+    
+    const ans = (await accessChatGPT(prompt)).data.choices[0].message.content;
     console.log(`question =  ${event.blocks[0].elements[0].elements[1].text}`);
     console.log(`answer =  ${ans}`);
     addPromptMemnory("user",userInfo.user.name + ":>" + event.blocks[0].elements[0].elements[1].text);
@@ -93,6 +165,103 @@ app.event("app_mention", async ({ event,client, say}) => {
   }
   
 });
+
+app.shortcut("calender_remind_register", async ({ shortcut, ack, context,say }) => {
+  ack();
+  var res =  await app.client.views.open({
+    token: context.botToken,
+    trigger_id: shortcut.trigger_id,
+    view: {
+      "type": "modal",
+      "callback_id": "modal-id",
+      "title": {
+        "type": "plain_text",
+        "text": "カレンダーリマインド登録",
+        "emoji": true
+      },
+      "submit": {
+        "type": "plain_text",
+        "text": "Submit",
+        "emoji": true
+      },
+      "close": {
+        "type": "plain_text",
+        "text": "Cancel",
+        "emoji": true
+      },
+      "blocks": [
+        {
+          "type": "section",
+          "text": {
+            "type": "mrkdwn",
+            "text": "リマインド送信したいチャンネルを選択"
+          },
+          "accessory": {
+            "type": "channels_select",
+            "placeholder": {
+              "type": "plain_text",
+              "text": "Select a channel",
+              "emoji": true
+            },
+            "action_id": "user_select-action"
+          }
+        }
+      ]
+    }
+  });
+});
+
+app.shortcut("calender_remind_reset", async ({ shortcut, ack, context,say }) => {
+  ack();
+
+  var email = shortcut.user.email;
+  var emailExists = calenderRemindMemory.find((v) => v.email == email);
+
+  if (emailExists == undefined){
+    return;
+  }
+  calenderRemindMemory = calenderRemindMemory.filter((v) => v.email != email);
+});
+
+
+app.view("modal-id", async ({ ack, body, view, context}) => {
+  ack();
+  console.log(`${body.user.name} view execute me!`);
+  console.log(JSON.stringify(body));
+  //var resChannel_id = body.channel.id;
+
+  console.log(JSON.stringify(context));
+
+  var block_id = view.blocks[0].block_id;
+
+  var channel_id = view.state.values[block_id]["user_select-action"].selected_channel;
+  var email = body.user.email;
+  var username = body.user.name;
+  var emailExists = calenderRemindMemory.find((v) => v.email == email);
+
+  if (emailExists != undefined){
+    await app.client.chat.postMessage({token: context.botToken, channel: channel_id, text: `<@${body.user.id}>すでに登録されています\r\n一度削除コマンドを実行してから再度登録してください。`});
+    return;
+  }
+
+  calenderRemindMemory.push({user:username, email: email, channel: channel_id});
+
+  await app.client.chat.postMessage({token: context.botToken, channel: channel_id, text: `<@${body.user.id}>スケジュール登録に成功しました！`});
+
+  console.log(JSON.stringify(calenderRemindMemory));
+
+});
+const accessChatGPT = async function accessChatGPT(prompt){
+  const completion = await openai.createChatCompletion({
+    model: "gpt-3.5-turbo",
+    messages: prompt,
+  });
+  return completion;
+}
+
+const sayCalenderRemind = async function sayCalenderRemind(){
+  app.message
+}
 
 const createBasePrompt = async function createBasePrompt() {
   require('date-utils');
@@ -121,18 +290,12 @@ const createBasePrompt = async function createBasePrompt() {
 	  {role: "system", content: `明日の天気:${weatherTomo}
     明日の予想最高気温:${weatherTomoTempMax}
     明日の予想最低気温:${weatherTomoTempMin}`},
-	  {role: "user", content: "あなたはどんな見た目をしていますか？"},
-	  {role: "assistant", content: "私はイルカのような見た目をしています。"},
-	  {role: "user", content: "あなたの名前は？"},
-	  {role: "assistant", content: "カイルといいます。"},
 	  {role: "user", content: "イルカの絵を描いて？"},
 	  {role: "assistant", content: "<@U04S9V7J30W> イルカ"},
 	  {role: "user", content: "かっこいい車の絵を描いて"},
 	  {role: "assistant", content: "<@U04S9V7J30W> かっこいい車"},
 	  {role: "user", content: "日本庭園の絵を描いて"},
-	  {role: "assistant", content: "<@U04S9V7J30W> 日本庭園"},
-    {role: "user", content: "ありがとうございます"},
-	  {role: "assistant", content: "お役に立てて嬉しいです。何か私がお力になれることがあれば、遠慮なくおっしゃってください。"}
+	  {role: "assistant", content: "<@U04S9V7J30W> 日本庭園"}
 	  ];
   return json
 };
@@ -172,6 +335,14 @@ const addPrompt = async function addPrompt(role,prompt) {
     role: "",
     content: ""
   };
+  if (promptMemory.length == 0){
+    if (fs.existsSync(conversationFile)) {
+      promptMemory = JSON.parse(fs.readFileSync(conversationFile, 'utf-8'));
+      console.log("read");
+    } else {
+      promptMemory = [];
+    }
+  }
   jsons = await createBasePrompt();
   let promptObj = {role: role,content: prompt}
   jsons = jsons.concat(promptMemory);
@@ -207,16 +378,29 @@ const addPrompt = async function addPrompt(role,prompt) {
 	  cnt = encoded.length;
     console.log(`cnt is ${cnt}`);
   }
+  
   return jsons;
 
 };
 
 const addPromptMemnory = function addPromptMemnory(role,promptStr) {
   let promptObj = {role: role,content: promptStr}
+  if (promptMemory.length == 0){
+    if (fs.existsSync(conversationFile)) {
+      promptMemory = JSON.parse(fs.readFileSync(conversationFile, 'utf-8'));
+      console.log("read");
+    } else {
+      promptMemory = [];
+    }
+  }
   promptMemory = promptMemory.concat(promptObj);
+  fs.writeFileSync(conversationFile, JSON.stringify(promptMemory, null, 2), 'utf-8');
   //console.log("test = " +  promptObj[0]);
 };
-
+const toDateStr = (str) => {
+  var date = new Date(str);
+  return date.toLocaleString('ja-JP');
+}
 
 const sleep = (time) => {
   return new Promise((resolve, reject) => {
