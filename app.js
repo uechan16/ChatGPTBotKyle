@@ -144,13 +144,14 @@ app.event("app_mention", async ({ event,client, say}) => {
     console.log(event.files[0].url_private);
     str = str  + "\r\n" + event.files[0].url_private;
   }
+  var addJson = {role: "user",content: userInfo.user.name + ":>" + str};
 
-  promptJSON  = await addPrompt("user",userInfo.user.name + ":>" + str );
+  promptJSON  = await addPrompt(addJson);
 
   console.log(`prompt is --------------\r\n${JSON.stringify(promptJSON)}`);
   
   res = await accessChatGPT(promptJSON)
-  let prompt2 = "";
+  let prompt2 = [addJson]
   
   while (res.choices[0].finish_reason === "function_call") {
     const functionCall = res.choices[0].message.function_call;
@@ -162,14 +163,12 @@ app.event("app_mention", async ({ event,client, say}) => {
         await say({text: `${url}にアクセスして情報を取得します。しばらくお待ちください。`,thread_ts: event.ts});
         const webData = await getWebData(url);
         var promptFC = [{
-          role: "user",
-          content: userInfo.user.name + ":>" + event.text.replace("<@U04RV37KP8U>","").replace("<@U04U3T89ALD>",""),
-        },{
           role: "function",
           content: webData,
           name: "getWebData",
         }];
-        res = await accessChatGPT(promptFC);
+        prompt2 = prompt2.concat(promptFC);
+        res = await accessChatGPT(prompt2);
         ans = res.choices[0].message.content;
         console.log(ans);
         break;
@@ -179,14 +178,12 @@ app.event("app_mention", async ({ event,client, say}) => {
         await say({text: `${keyword}についてWikipediaでお調べします。しばらくお待ちください。`,thread_ts: event.ts});
         const wikiData = await getWikiData(keyword);
         var promptFC = [{
-          role: "user",
-          content: userInfo.user.name + ":>" + event.text.replace("<@U04RV37KP8U>","").replace("<@U04U3T89ALD>",""),
-        },{
           role: "function",
           content: wikiData,
           name: "getWikiData",
         }];
-        res = await accessChatGPT(promptFC);
+        prompt2 = prompt2.concat(promptFC);
+        res = await accessChatGPT(prompt2);
         ans = res.choices[0].message.content;
         console.log(ans);
         break;
@@ -199,7 +196,7 @@ app.event("app_mention", async ({ event,client, say}) => {
           content: yotei,
           name: "getCalender",
         }];
-        prompt2 = promptJSON.concat(promptFC);
+        prompt2 = prompt2.concat(promptFC);
         res = await accessChatGPT(prompt2);
         ans = res.choices[0].message.content;
         console.log(ans);
@@ -213,7 +210,7 @@ app.event("app_mention", async ({ event,client, say}) => {
             content: image_info,
             name: "getImageData",
           }];
-          prompt2 = promptJSON.concat(promptFC);
+          prompt2 = prompt2.concat(promptFC);
           res = await accessChatGPT(prompt2);
           ans = res.choices[0].message.content;
           console.log(ans);
@@ -407,11 +404,10 @@ const getWikiData = async function getWikiData(keyword){
     console.error(e)
     return "該当するWikipediaのページが見つかりませんでした。";
   }
-  
-  console.log(content);
-  if (content.length > 7000) {
-    content = content.substring(0, 7000);
+  if (content.length > 2500) {
+    content = content.substring(0, 2500);
   }
+  console.log(content);
   return content;
 }
 
@@ -455,7 +451,7 @@ const getImageData = async function getImageData(image_url,image_prompt){
   return result;
 }
 
-const addPrompt = async function addPrompt(role,prompt) {
+const addPrompt = async function addPrompt(promptObj) {
   var jsons = {
     role: "",
     content: ""
@@ -469,7 +465,6 @@ const addPrompt = async function addPrompt(role,prompt) {
     }
   }
   jsons = await createBasePrompt();
-  let promptObj = {role: role,content: prompt}
   jsons = jsons.concat(promptMemory);
   jsons = jsons.concat(promptObj);
   //console.log(jsons);
@@ -484,7 +479,6 @@ const addPrompt = async function addPrompt(role,prompt) {
   let cnt = encoded.length;
   while (cnt > 8000){
     jsons = await createBasePrompt();
-    let promptObj = {role: role,content: prompt};
     console.log("bef");
     console.log(JSON.stringify(promptMemory));
     promptMemory.shift();
