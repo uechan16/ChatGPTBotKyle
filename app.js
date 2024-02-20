@@ -161,7 +161,15 @@ app.event("app_mention", async ({ event,client, say}) => {
     console.log(event.files[0].url_private);
     str = str  + "\r\n" + event.files[0].url_private;
   }
-  var addJson = {role: "user",content: str,name: userInfo.user.name};
+  var username = userInfo.user.name.replace(" ","");
+  username = username.replace(".","");
+  username = username.replace("(","").replace(")","");
+  // usernameが日本語の場合、"user"に変更する
+  if (username.match(/[^a-zA-Z0-9]/)) {
+    username = "user";
+  }
+
+  var addJson = {role: "user",content: str,name: username};
 
   promptJSON  = await addPrompt(addJson);
 
@@ -176,7 +184,6 @@ app.event("app_mention", async ({ event,client, say}) => {
       case "getWebData":
         const { url } = JSON.parse(functionCall.arguments);
         console.log(url);
-        await say({text: `${url}にアクセスして情報を取得します。しばらくお待ちください。`,thread_ts: event.ts});
         const webData = await getWebData(url);
         promptFC = [{
           role: "function",
@@ -187,7 +194,6 @@ app.event("app_mention", async ({ event,client, say}) => {
       case "getWikiData":
         const { keyword } = JSON.parse(functionCall.arguments);
         console.log(keyword);
-        await say({text: `${keyword}についてWikipediaでお調べします。しばらくお待ちください。`,thread_ts: event.ts});
         const wikiData = await getWikiData(keyword);
         promptFC = [{
           role: "function",
@@ -217,7 +223,6 @@ app.event("app_mention", async ({ event,client, say}) => {
           break;
       case "generateImage":
         const { prompt } = JSON.parse(functionCall.arguments);
-        await say({text: `画像を生成いたします。しばらくお待ちください。`,thread_ts: event.ts});
         var gene_image_url = await generateImage(prompt);
         promptFC = [{
           role: "function",
@@ -538,15 +543,9 @@ const addPrompt = async function addPrompt(promptObj) {
   let cnt = encoded.length;
   while (cnt > 8000){
     jsons = await createBasePrompt();
-    console.log("bef");
-    console.log(JSON.stringify(promptMemory));
     promptMemory.shift();
-    console.log("after");
-    console.log(JSON.stringify(promptMemory));
     jsons = jsons.concat(promptMemory);
     jsons = jsons.concat(promptObj);
-    console.log("after json");
-    console.log(JSON.stringify(jsons));
     str = "";
     jsons.forEach((json)=>{
       str = str.concat(json.content);
@@ -564,7 +563,6 @@ const addPrompt = async function addPrompt(promptObj) {
 
 const addPromptMemnoryToFile = function addPromptMemnoryToFile() {
   fs.writeFileSync(conversationFile, JSON.stringify(promptMemory, null, 2), 'utf-8');
-  console.log("test = " +  promptMemory);
 };
 
 const toDateStr = (str) => {
