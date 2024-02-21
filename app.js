@@ -62,6 +62,7 @@ const app = new App({
 const { OpenAI } = require("openai");
 const { json } = require('express');
 const { channel } = require('diagnostics_channel');
+const e = require('express');
 
 const openai = new OpenAI();
 
@@ -144,106 +145,44 @@ let functions = [
 
 
 app.event("app_mention", async ({ event,client, say}) => {
-  console.log(`${event.user} mentioned me!`);
-
-  var userInfo = await app.client.users.info({user: event.user});
-  console.log(userInfo.user.name);
-
-  
-  //await sleep(8000);
-
-  //const prompt = await addPrompt("user",userInfo.user.name + ":>" + event.text.replace("<@U04U3T89ALD>",""));
   var str = event.text.replace("<@U04RV37KP8U>","").replace("<@U04U3T89ALD>","");
-
-  
-  // event内にfilesがある場合は、ファイルをダウンロードして、promptに追加する
+   // event内にfilesがある場合は、promptに追加する
   if(event.files != undefined){
     console.log(event.files[0].url_private);
     str = str  + "\r\n" + event.files[0].url_private;
   }
-  var username = userInfo.user.name.replace(" ","");
-  username = username.replace(".","");
-  username = username.replace("(","").replace(")","");
-  // usernameが日本語の場合、"user"に変更する
-  if (username.match(/[^a-zA-Z0-9]/)) {
-    username = "user";
-  }
-
-  var addJson = {role: "user",content: str,name: username};
-
-  promptJSON  = await addPrompt(addJson);
-
-  console.log(`prompt is --------------\r\n${JSON.stringify(promptJSON)}`);
+  var userInfo = await app.client.users.info({user: event.user});
+  var res = await accessKyle(str,userInfo);
   
-  res = await accessChatGPT(promptJSON)
-  var promptFC = [];
-  while (res.choices[0].finish_reason === "function_call") {
-    const functionCall = res.choices[0].message.function_call;
+  await say({text: `<@${userInfo.user.id}> ${res}`,thread_ts: event.ts});
+});
 
-    switch (functionCall.name) {
-      case "getWebData":
-        const { url } = JSON.parse(functionCall.arguments);
-        console.log(url);
-        const webData = await getWebData(url);
-        promptFC = [{
-          role: "function",
-          content: webData,
-          name: "getWebData",
-        }];
-        break;
-      case "getWikiData":
-        const { keyword } = JSON.parse(functionCall.arguments);
-        console.log(keyword);
-        const wikiData = await getWikiData(keyword);
-        promptFC = [{
-          role: "function",
-          content: wikiData,
-          name: "getWikiData",
-        }];
-        break;
-      case "getCalender":
-        const { day } = JSON.parse(functionCall.arguments);
-        let email = userInfo.user.profile.email;
-        const yotei = await getCalender(email,day);
-        promptFC = [{
-          role: "function",
-          content: yotei,
-          name: "getCalender",
-        }];
-        break;
-      case "getImageData":
-          const { image_url,image_prompt } = JSON.parse(functionCall.arguments);
-          var image_info = await getImageData(image_url,image_prompt);
-          console.log(image_info);
-          promptFC = [{
-            role: "function",
-            content: image_info,
-            name: "getImageData",
-          }];
-          break;
-      case "generateImage":
-        const { prompt } = JSON.parse(functionCall.arguments);
-        var gene_image_url = await generateImage(prompt);
-        promptFC = [{
-          role: "function",
-          content: gene_image_url,
-          name: "generateImage",
-        }];
-        break;
-      default:
-        break;
+app.event("reaction_added", async ({ event,client, say}) => {
+  var reactions = event.reaction;
+
+  // リアクションが:kyle:の場合、Kyleに質問を投げる
+  if (reactions != "kyle"){
+    return;
+  }else{
+    var ts = event.item.ts;
+    var channel = event.item.channel;
+    var res = await app.client.conversations.replies({
+      token: process.env.SLACK_BOT_TOKEN,
+      channel: channel,
+      ts: ts
+    });
+    var str = res.messages[0].text.replace("<@U04RV37KP8U>","").replace("<@U04U3T89ALD>","");
+     // event内にfilesがある場合は、promptに追加する
+    if(res.messages[0].files != undefined){
+      console.log(res.messages[0].files[0].url_private);
+      str = str  + "\r\n" + res.messages[0].files[0].url_private;
     }
-    promptJSON  = await addPrompt(promptFC);
-    res = await accessChatGPT(promptJSON);
-    ans = res.choices[0].message.content;
-    console.log(ans);
+    var userInfo = await app.client.users.info({user: res.messages[0].user});
+    console.log(str);
+
+    var res = await accessKyle(str,userInfo);
+    await say({text: `${res}`,thread_ts: ts});
   }
-  ans = res.choices[0].message.content;
-  console.log(`question =  ${event.blocks[0].elements[0].elements[1].text}`);
-  console.log(`answer =  ${ans}`);
-  promptJSON  = await addPrompt([{role: "assistant",content: ans,name: "Kyle"}]);
-  await say({text: `<@${event.user}> ${ans}`,thread_ts: event.ts});
-  
 });
 
 app.shortcut("calender_remind_register", async ({ shortcut, ack, context,say }) => {
@@ -331,6 +270,7 @@ app.view("modal-id", async ({ ack, body, view, context}) => {
   console.log(JSON.stringify(calenderRemindMemory));
 
 });
+
 const accessChatGPT = async function accessChatGPT(prompt){
   const completion = await openai.chat.completions.create({
     model: "gpt-4-0613",
@@ -340,6 +280,91 @@ const accessChatGPT = async function accessChatGPT(prompt){
   });
   console.log(JSON.stringify(completion));
   return completion;
+}
+
+const accessKyle = async function accessKyle(str,userInfo){
+  //const prompt = await addPrompt("user",userInfo.user.name + ":>" + event.text.replace("<@U04U3T89ALD>",""));
+  console.log(userInfo.user.name);
+  var username = userInfo.user.name.replace(" ","");
+  username = username.replace(".","");
+  username = username.replace("(","").replace(")","");
+  // usernameが日本語の場合、"user"に変更する
+  if (username.match(/[^a-zA-Z0-9]/)) {
+    username = "user";
+  }
+  var addJson = {role: "user",content: str,name: username};
+  promptJSON  = await addPrompt(addJson);
+  console.log(`prompt is --------------\r\n${JSON.stringify(promptJSON)}`);
+  
+  res = await accessChatGPT(promptJSON)
+  var promptFC = [];
+  while (res.choices[0].finish_reason === "function_call") {
+    const functionCall = res.choices[0].message.function_call;
+
+    switch (functionCall.name) {
+      case "getWebData":
+        const { url } = JSON.parse(functionCall.arguments);
+        console.log(url);
+        const webData = await getWebData(url);
+        promptFC = [{
+          role: "function",
+          content: webData,
+          name: "getWebData",
+        }];
+        break;
+      case "getWikiData":
+        const { keyword } = JSON.parse(functionCall.arguments);
+        console.log(keyword);
+        const wikiData = await getWikiData(keyword);
+        promptFC = [{
+          role: "function",
+          content: wikiData,
+          name: "getWikiData",
+        }];
+        break;
+      case "getCalender":
+        const { day } = JSON.parse(functionCall.arguments);
+        let email = userInfo.user.profile.email;
+        const yotei = await getCalender(email,day);
+        promptFC = [{
+          role: "function",
+          content: yotei,
+          name: "getCalender",
+        }];
+        break;
+      case "getImageData":
+          const { image_url,image_prompt } = JSON.parse(functionCall.arguments);
+          var image_info = await getImageData(image_url,image_prompt);
+          console.log(image_info);
+          promptFC = [{
+            role: "function",
+            content: image_info,
+            name: "getImageData",
+          }];
+          break;
+      case "generateImage":
+        const { prompt } = JSON.parse(functionCall.arguments);
+        var gene_image_url = await generateImage(prompt);
+        promptFC = [{
+          role: "function",
+          content: gene_image_url,
+          name: "generateImage",
+        }];
+        break;
+      default:
+        break;
+    }
+    promptJSON  = await addPrompt(promptFC);
+    res = await accessChatGPT(promptJSON);
+    ans = res.choices[0].message.content;
+    console.log(ans);
+  }
+  ans = res.choices[0].message.content;
+  console.log(`question =  ${str}`);
+  console.log(`answer =  ${ans}`);
+  promptJSON  = await addPrompt([{role: "assistant",content: ans,name: "Kyle"}]);
+
+  return ans;
 }
 
 const createBasePrompt = async function createBasePrompt() {
@@ -353,8 +378,6 @@ const createBasePrompt = async function createBasePrompt() {
   var weatherTomoTempMax = '';
   var weatherTomoTempMin = '';
 
-  
-  
   const getResult = await request('https://weather.tsukumijima.net/api/forecast/city/130010');
   var weatherJson = JSON.parse(getResult);
   weatherStr = weatherJson.description.text;
